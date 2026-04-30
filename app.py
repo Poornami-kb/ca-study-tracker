@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import date
@@ -6,98 +5,100 @@ import time
 import plotly.express as px
 
 # --- APP CONFIG ---
-st.set_page_config(page_title="CA Foundation Tracker", layout="wide", page_icon="🎓")
-
-# --- SYLLABUS DATA ---
-SYLLABUS = {
-    "Accounts": ["Accounting Process", "BRS", "Inventories", "Depreciation", "Final Accounts", "Partnership", "Company Accounts"],
-    "Law": ["Contract Act", "Sale of Goods", "Partnership Act", "LLP Act", "Companies Act"],
-    "QA (Math/LR/Stats)": ["Ratio & Proportion", "Time Value of Money", "Logical Reasoning", "Measures of Central Tendency", "Probability"],
-    "Economics": ["Demand & Supply", "Production & Cost", "Markets", "National Income", "Public Finance"]
-}
+st.set_page_config(page_title="My CA Journey Tracker", layout="wide", page_icon="🎓")
 
 # --- INITIALIZE DATA STORAGE ---
+# This holds your custom subjects and topics
+if 'custom_syllabus' not in st.session_state:
+    st.session_state.custom_syllabus = {}
+# This holds your study logs
 if 'study_logs' not in st.session_state:
-    st.session_state.study_logs = pd.DataFrame(columns=["Date", "Subject", "Hours", "Topic"])
+    st.session_state.study_logs = pd.DataFrame(columns=["Date", "Subject", "Topic", "Hours"])
+# This holds what is finished
+if 'completed_topics' not in st.session_state:
+    st.session_state.completed_topics = []
 
-# --- SIDEBAR: EXAM COUNTDOWN ---
-st.sidebar.header("🎯 Exam Countdown")
-exam_date = st.sidebar.date_input("Exam Date", date(2024, 12, 20))
-days_left = (exam_date - date.today()).days
-st.sidebar.metric("Days Remaining", f"{days_left}")
+# --- SIDEBAR: APP SETTINGS (Customization) ---
+st.sidebar.header("⚙️ App Setup")
+st.sidebar.info("Use this to set your Foundation/Inter/Final subjects.")
 
-# --- MAIN DASHBOARD ---
-st.title("📚 CA Foundation Study Journey")
+with st.sidebar.expander("➕ Add/Edit Subjects"):
+    new_sub = st.text_input("Subject Name (e.g. Accounts)")
+    new_topics = st.text_area("Topics (Separate by commas)").split(",")
+    if st.button("Save Subject"):
+        if new_sub and new_topics:
+            st.session_state.custom_syllabus[new_sub] = [t.strip() for t in new_topics]
+            st.success(f"Added {new_sub}!")
 
-# 1. Syllabus Completion Logic
+if st.sidebar.button("🗑️ Reset All Data"):
+    st.session_state.custom_syllabus = {}
+    st.session_state.study_logs = pd.DataFrame(columns=["Date", "Subject", "Topic", "Hours"])
+    st.session_state.completed_topics = []
+    st.rerun()
+
+# --- MAIN INTERFACE ---
+st.title("🛡️ CA Command Center")
+
+# --- 1. SYLLABUS TRACKER ---
 st.subheader("📊 Syllabus Progress")
-cols = st.columns(4)
-all_subjects_progress = []
+if not st.session_state.custom_syllabus:
+    st.warning("Please add subjects in the sidebar to start!")
+else:
+    cols = st.columns(len(st.session_state.custom_syllabus))
+    for i, (sub, topics) in enumerate(st.session_state.custom_syllabus.items()):
+        with cols[i]:
+            st.markdown(f"### {sub}")
+            for t in topics:
+                is_done = t in st.session_state.completed_topics
+                if st.checkbox(t, value=is_done, key=f"chk_{sub}_{t}"):
+                    if t not in st.session_state.completed_topics:
+                        st.session_state.completed_topics.append(t)
+                elif t in st.session_state.completed_topics:
+                    st.session_state.completed_topics.remove(t)
+            
+            # Sub-progress
+            sub_total = len(topics)
+            sub_done = len([t for t in topics if t in st.session_state.completed_topics])
+            st.progress(sub_done/sub_total if sub_total > 0 else 0)
+            st.caption(f"{sub_done}/{sub_total} Topics")
 
-for i, (subject, topics) in enumerate(SYLLABUS.items()):
-    with cols[i]:
-        st.markdown(f"**{subject}**")
-        # In a real app, you'd load this from a file, for now we use checkboxes
-        completed = st.multiselect(f"Done in {subject}:", topics, key=f"multi_{subject}")
-        done_count = len(completed)
-        total_count = len(topics)
-        perc = (done_count / total_count)
-        st.progress(perc)
-        st.caption(f"{done_count}/{total_count} Topics Finished")
-        all_subjects_progress.append(perc)
-
-# --- 2. TIMER & MANUAL LOGGING ---
+# --- 2. THE CALENDAR & RECORDING ---
 st.divider()
-col_left, col_right = st.columns([1, 2])
+st.subheader("📅 Study Calendar & Logger")
+col_log, col_cal = st.columns([1, 2])
 
-with col_left:
-    st.write("### ⏱️ Focus Timer")
-    duration = st.number_input("Minutes", min_value=1, value=45)
-    if st.button("Start Timer"):
-        ph = st.empty()
-        for i in range(duration * 60, 0, -1):
-            m, s = divmod(i, 60)
-            ph.header(f"⏳ {m:02d}:{s:02d}")
-            time.sleep(1)
-        st.success("Time Up! Log your hours now.")
-        st.balloons()
-
-with col_right:
-    st.write("### 📝 Log Your Study")
+with col_log:
+    st.write("#### Record Study Session")
     with st.form("study_form", clear_on_submit=True):
-        f_date = st.date_input("Date", date.today())
-        f_sub = st.selectbox("Subject", list(SYLLABUS.keys()))
-        f_topic = st.text_input("What did you study?")
-        f_hrs = st.number_input("Hours", min_value=0.5, max_value=16.0, step=0.5)
+        log_date = st.date_input("Date", date.today())
+        log_sub = st.selectbox("Subject", list(st.session_state.custom_syllabus.keys()))
+        log_topic = st.text_input("Specific Topic Studied")
+        log_hrs = st.number_input("Hours", min_value=0.5, step=0.5)
         
-        if st.form_submit_button("Save Entry"):
-            new_data = pd.DataFrame([[f_date, f_sub, f_hrs, f_topic]], 
-                                    columns=["Date", "Subject", "Hours", "Topic"])
-            st.session_state.study_logs = pd.concat([st.session_state.study_logs, new_data], ignore_index=True)
-            st.success("Logged successfully!")
+        if st.form_submit_button("Log Session"):
+            new_entry = pd.DataFrame([[log_date, log_sub, log_topic, log_hrs]], 
+                                     columns=["Date", "Subject", "Topic", "Hours"])
+            st.session_state.study_logs = pd.concat([st.session_state.study_logs, new_entry], ignore_index=True)
+            st.success("Session Recorded!")
 
-# --- 3. ANALYSIS & GRAPHS ---
+with col_cal:
+    st.write("#### Your Recorded Journey")
+    if not st.session_state.study_logs.empty:
+        # We use a dataframe to act as a 'Calendar List'
+        cal_df = st.session_state.study_logs.sort_values(by="Date", ascending=False)
+        st.dataframe(cal_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Your study history will appear here.")
+
+# --- 3. ANALYSIS ---
 st.divider()
 if not st.session_state.study_logs.empty:
-    st.write("### 📈 Performance Analysis")
-    fig = px.bar(st.session_state.study_logs, x="Date", y="Hours", color="Subject", 
-                 title="Study Hours per Day", barmode="group")
+    st.write("### 📈 Time Analysis")
+    fig = px.pie(st.session_state.study_logs, values='Hours', names='Subject', title='Distribution of Study Time')
     st.plotly_chart(fig, use_container_width=True)
-    
-    st.write("### 📋 Recorded History")
-    st.dataframe(st.session_state.study_logs, use_container_width=True)
-else:
-    st.info("No logs found. Start studying to see your graphs!")
 
-# --- 4. CSV DOWNLOAD SECTION ---
+# --- CSV BACKUP ---
 st.sidebar.divider()
-st.sidebar.header("💾 Backup Data")
 if not st.session_state.study_logs.empty:
     csv = st.session_state.study_logs.to_csv(index=False).encode('utf-8')
-    st.sidebar.download_button(
-        label="📥 Download Study Log (CSV)",
-        data=csv,
-        file_name=f"ca_study_log_{date.today()}.csv",
-        mime="text/csv",
-    )
-st.sidebar.caption("Tip: Download this once a week to keep a permanent backup on your laptop.")
+    st.sidebar.download_button("📥 Download My Data", data=csv, file_name="my_ca_journey.csv")
